@@ -35,14 +35,14 @@
   #ctrl button.area.active { background:var(--area); color:#00202b; }
 
   /* Panel de exportación */
-  #export { position:absolute; inset:0; background:rgba(10,12,16,.92); display:none; flex-direction:column;
+  #panel { position:absolute; inset:0; background:rgba(10,12,16,.92); display:none; flex-direction:column;
     gap:12px; padding:calc(16px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px));
     box-sizing:border-box; overflow:auto; pointer-events:auto; }
-  #export.on { display:flex; }
-  #export img { max-width:100%; border-radius:8px; }
-  #export pre { margin:0; font-size:.8rem; color:var(--muted); white-space:pre-wrap; }
-  #export .row { display:flex; flex-wrap:wrap; gap:8px; }
-  #export a { color:var(--accent); font-weight:600; padding:10px 14px; border:1px solid var(--accent);
+  #panel.on { display:flex; }
+  #panel img { max-width:100%; border-radius:8px; }
+  #panel pre { margin:0; font-size:.8rem; color:var(--muted); white-space:pre-wrap; }
+  #panel .row { display:flex; flex-wrap:wrap; gap:8px; }
+  #panel a { color:var(--accent); font-weight:600; padding:10px 14px; border:1px solid var(--accent);
     border-radius:12px; text-decoration:none; }
 </style>
 </head>
@@ -75,7 +75,7 @@
     <button id="export">Exportar</button>
     <button id="exit">Salir</button>
   </div>
-  <div id="export">
+  <div id="panel">
     <b>Exportar medidas</b>
     <img id="expImg" alt="Imagen con cotas">
     <pre id="expTxt"></pre>
@@ -288,7 +288,7 @@ startBtn.onclick = async () => {
   hitTestSource = await session.requestHitTestSource({ space: viewer });
 
   session.addEventListener('select', () => {
-    if (!reticle.visible || $('export').classList.contains('on')) return;
+    if (!reticle.visible || $("panel").classList.contains('on')) return;
     addPoint(new THREE.Vector3().setFromMatrixPosition(reticle.matrix));
   });
   session.addEventListener('end', () => {
@@ -315,7 +315,7 @@ $('undo').onclick = undo;
 $('reset').onclick = resetAll;
 $('exit').onclick = () => session && session.end();
 $('export').onclick = () => { if (state.items.length) captureNext = true; else hintEl.textContent = 'No hay medidas que exportar'; };
-$('expClose').onclick = () => $('export').classList.remove('on');
+$('expClose').onclick = () => $("panel").classList.remove('on');
 
 // ---------- 6. Exportación ----------
 function capture(frame) {
@@ -414,7 +414,7 @@ async function showExport(canvas) {
   $('dlCsv').href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   $('expTxt').textContent = (hasCamera ? 'Foto con cotas.' : 'Sin acceso a la imagen de cámara en AR: se exporta el plano en planta.') + '\n\n' + csv;
   $('share').hidden = !(navigator.canShare && navigator.canShare({ files: expFiles }));
-  $('export').classList.add('on');
+  $("panel").classList.add('on');
 }
 $('share').onclick = () => navigator.share({ files: expFiles, title: 'Medidas AR' }).catch(() => {});
 window.__dbg = { THREE, state, addPoint, finishPoly, undo, resetAll, setMode, world };
