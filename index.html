@@ -32,7 +32,7 @@
 <body>
 
 <section id="intro">
-  <h1>Medir AR</h1>
+  <h1>Medir AR <small style="font-size:.5em;color:#9aa3ad">v3</small></h1>
   <p>Prueba de medición con la cámara usando WebXR. Funciona en Android con Chrome en móviles compatibles con ARCore.</p>
   <ol>
     <li>Pulsa <b>Iniciar</b> y acepta el permiso de cámara.</li>
@@ -70,6 +70,7 @@ async function checkSupport() {
   const ok = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
   if (!ok) return fail('El dispositivo no soporta AR (necesita ARCore instalado).');
   startBtn.disabled = false; startBtn.textContent = 'Iniciar';
+  status.textContent = `Entorno: ${location.protocol} · seguro=${isSecureContext} · UA=${navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? '?'}`;
 }
 function fail(msg) { startBtn.textContent = 'No disponible'; status.textContent = msg; }
 checkSupport();
@@ -114,13 +115,24 @@ function updateLine(a, b) {
 let session = null, hitTestSource = null, refSpace = null;
 
 startBtn.onclick = async () => {
-  try {
-    session = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['hit-test'],
-      optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: overlay }
-    });
-  } catch (e) { status.textContent = 'No se pudo iniciar AR: ' + e.message; return; }
+  const attempts = [
+    ['hit-test + overlay', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay'], domOverlay: { root: overlay } }],
+    ['hit-test',           { requiredFeatures: ['hit-test'] }],
+    ['sin funciones',      {}],
+  ];
+  const log = [];
+  for (const [name, init] of attempts) {
+    try {
+      session = await navigator.xr.requestSession('immersive-ar', init);
+      log.push(`✔ ${name}`); break;
+    } catch (e) { log.push(`✘ ${name}: ${e.name} · ${e.message}`); }
+  }
+  status.innerHTML = log.join('<br>');
+  if (!session) return;
+  if (!session.enabledFeatures?.includes('hit-test')) {
+    status.innerHTML += '<br>La sesión abre pero SIN hit-test: no se puede medir.';
+    session.end(); return;
+  }
 
   overlay.classList.add('on'); clearAll(); hintEl.textContent = 'Busca una superficie';
   renderer.xr.setReferenceSpaceType('local');
