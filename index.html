@@ -95,6 +95,9 @@
 import * as THREE from 'three';
 
 const $ = id => document.getElementById(id);
+// Cualquier error en AR se muestra en pantalla (en el móvil no hay consola a mano)
+addEventListener('error', e => { $('hint').textContent = 'Error: ' + e.message; $('status').textContent = 'Error: ' + e.message; });
+addEventListener('unhandledrejection', e => { $('hint').textContent = 'Error: ' + (e.reason?.message ?? e.reason); });
 const startBtn = $('start'), status = $('status'), overlay = $('overlay');
 const valueEl = $('value'), hintEl = $('hint'), countEl = $('count');
 
@@ -414,6 +417,7 @@ async function showExport(canvas) {
   $('export').classList.add('on');
 }
 $('share').onclick = () => navigator.share({ files: expFiles, title: 'Medidas AR' }).catch(() => {});
+window.__dbg = { THREE, state, addPoint, finishPoly, undo, resetAll, setMode, world };
 </script>
 </body>
 </html>
