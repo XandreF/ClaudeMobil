@@ -5,39 +5,56 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Medir AR</title>
 <style>
-  :root { --bg:#0e1116; --fg:#f2f4f7; --muted:#9aa3ad; --accent:#ffb545; }
+  :root { --bg:#0e1116; --fg:#f2f4f7; --muted:#9aa3ad; --accent:#ffb545; --area:#5ac8fa; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font:16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #intro { min-height:100%; display:flex; flex-direction:column; justify-content:center;
     gap:16px; padding:24px 20px; box-sizing:border-box; max-width:36rem; margin:0 auto; }
   h1 { margin:0; font-size:1.8rem; }
+  h1 small { font-size:.5em; color:var(--muted); }
   p { margin:0; color:var(--muted); }
   ol { margin:0; padding-left:1.2rem; color:var(--muted); }
-  button { font:inherit; font-weight:600; padding:14px 20px; border:0; border-radius:12px;
+  button { font:inherit; font-weight:600; padding:12px 16px; border:0; border-radius:12px;
     background:var(--accent); color:#1a1200; cursor:pointer; }
   button:disabled { opacity:.5; cursor:default; }
-  #status { font-size:.9rem; color:var(--muted); min-height:1.4em; }
+  #status { font-size:.85rem; color:var(--muted); min-height:1.4em; }
+
+  /* Capa sobre la vista AR */
   #overlay { position:fixed; inset:0; display:none; pointer-events:none; }
   #overlay.on { display:block; }
   #hud { position:absolute; top:calc(12px + env(safe-area-inset-top,0px)); left:12px; right:12px;
-    display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
-  #dist { font-size:2.4rem; font-weight:700; font-variant-numeric:tabular-nums;
+    display:flex; flex-direction:column; gap:4px; }
+  #value { font-size:2.4rem; font-weight:700; font-variant-numeric:tabular-nums;
     text-shadow:0 1px 6px rgba(0,0,0,.6); }
-  #hint { font-size:.95rem; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.7); }
-  #ctrl { position:absolute; bottom:calc(20px + env(safe-area-inset-bottom,0px)); left:0; right:0;
-    display:flex; justify-content:center; gap:12px; pointer-events:auto; }
-  #ctrl button { background:rgba(20,22,28,.75); color:#fff; backdrop-filter:blur(6px); }
+  #hint, #count { font-size:.95rem; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.7); }
+  #count { color:#ddd; font-size:.85rem; }
+  #ctrl { position:absolute; bottom:calc(16px + env(safe-area-inset-bottom,0px)); left:12px; right:12px;
+    display:flex; flex-wrap:wrap; justify-content:center; gap:8px; pointer-events:auto; }
+  #ctrl button { background:rgba(20,22,28,.78); color:#fff; backdrop-filter:blur(6px); padding:10px 14px; }
+  #ctrl button.active { background:var(--accent); color:#1a1200; }
+  #ctrl button.area.active { background:var(--area); color:#00202b; }
+
+  /* Panel de exportación */
+  #export { position:absolute; inset:0; background:rgba(10,12,16,.92); display:none; flex-direction:column;
+    gap:12px; padding:calc(16px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px));
+    box-sizing:border-box; overflow:auto; pointer-events:auto; }
+  #export.on { display:flex; }
+  #export img { max-width:100%; border-radius:8px; }
+  #export pre { margin:0; font-size:.8rem; color:var(--muted); white-space:pre-wrap; }
+  #export .row { display:flex; flex-wrap:wrap; gap:8px; }
+  #export a { color:var(--accent); font-weight:600; padding:10px 14px; border:1px solid var(--accent);
+    border-radius:12px; text-decoration:none; }
 </style>
 </head>
 <body>
 
 <section id="intro">
-  <h1>Medir AR <small style="font-size:.5em;color:#9aa3ad">v3</small></h1>
-  <p>Prueba de medición con la cámara usando WebXR. Funciona en Android con Chrome en móviles compatibles con ARCore.</p>
+  <h1>Medir AR <small>v4</small></h1>
+  <p>Medición con la cámara usando WebXR. Distancias y superficies, con exportación de imagen y datos.</p>
   <ol>
     <li>Pulsa <b>Iniciar</b> y acepta el permiso de cámara.</li>
-    <li>Mueve el móvil despacio sobre una superficie (suelo, mesa) hasta que aparezca el anillo.</li>
-    <li>Toca la pantalla en el primer punto, y luego en el segundo.</li>
+    <li>Mueve el móvil sobre una superficie hasta que aparezca el anillo.</li>
+    <li><b>Distancia</b>: toca dos puntos. <b>Área</b>: toca las esquinas y pulsa <b>Cerrar</b>.</li>
   </ol>
   <button id="start" disabled>Comprobando compatibilidad…</button>
   <div id="status"></div>
@@ -45,12 +62,29 @@
 
 <div id="overlay">
   <div id="hud">
-    <div id="dist">—</div>
+    <div id="value">—</div>
     <div id="hint">Busca una superficie</div>
+    <div id="count"></div>
   </div>
   <div id="ctrl">
-    <button id="reset">Borrar</button>
+    <button id="modeDist" class="active">Distancia</button>
+    <button id="modeArea" class="area">Área</button>
+    <button id="close" hidden>Cerrar</button>
+    <button id="undo">Deshacer</button>
+    <button id="reset">Reiniciar</button>
+    <button id="export">Exportar</button>
     <button id="exit">Salir</button>
+  </div>
+  <div id="export">
+    <b>Exportar medidas</b>
+    <img id="expImg" alt="Imagen con cotas">
+    <pre id="expTxt"></pre>
+    <div class="row">
+      <button id="share">Compartir</button>
+      <a id="dlImg" download="medidas.png">Guardar imagen</a>
+      <a id="dlCsv" download="medidas.csv">Guardar CSV</a>
+      <button id="expClose">Volver</button>
+    </div>
   </div>
 </div>
 
@@ -62,20 +96,19 @@ import * as THREE from 'three';
 
 const $ = id => document.getElementById(id);
 const startBtn = $('start'), status = $('status'), overlay = $('overlay');
-const distEl = $('dist'), hintEl = $('hint');
+const valueEl = $('value'), hintEl = $('hint'), countEl = $('count');
 
-// 1. ¿Soporta este navegador AR?
+// ---------- 1. Compatibilidad ----------
 async function checkSupport() {
   if (!navigator.xr) return fail('Este navegador no tiene WebXR. Usa Chrome en Android.');
   const ok = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
   if (!ok) return fail('El dispositivo no soporta AR (necesita ARCore instalado).');
   startBtn.disabled = false; startBtn.textContent = 'Iniciar';
-  status.textContent = `Entorno: ${location.protocol} · seguro=${isSecureContext} · UA=${navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? '?'}`;
 }
 function fail(msg) { startBtn.textContent = 'No disponible'; status.textContent = msg; }
 checkSupport();
 
-// 2. Escena three.js mínima
+// ---------- 2. Escena ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(innerWidth, innerHeight);
@@ -86,55 +119,165 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera();
 scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
 
+const COLOR = { dist: 0xffb545, area: 0x5ac8fa };
+
 // Anillo que marca dónde "toca" la superficie
 const reticle = new THREE.Mesh(
   new THREE.RingGeometry(0.03, 0.04, 32).rotateX(-Math.PI / 2),
-  new THREE.MeshBasicMaterial({ color: 0xffb545 })
+  new THREE.MeshBasicMaterial({ color: COLOR.dist })
 );
 reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
 
+const world = new THREE.Group(); scene.add(world);   // medidas terminadas
+const live = new THREE.Group();  scene.add(live);    // previsualización, se redibuja cada frame
+
+// --- Piezas 3D reutilizables ---
 const markerGeo = new THREE.SphereGeometry(0.008, 16, 16);
-const markerMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-const lineMat = new THREE.LineBasicMaterial({ color: 0xffb545, linewidth: 2 });
-let points = [], markers = [], line = null;
+const segGeo = new THREE.CylinderGeometry(0.003, 0.003, 1, 8);
+const mats = {};
+const mat = (c, extra = {}) => mats[c + JSON.stringify(extra)] ??= new THREE.MeshBasicMaterial({ color: c, ...extra });
 
-function clearAll() {
-  markers.forEach(m => scene.remove(m)); markers = []; points = [];
-  if (line) { scene.remove(line); line = null; }
-  distEl.textContent = '—'; hintEl.textContent = 'Toca el primer punto';
-}
-function fmt(m) { return m < 1 ? `${(m * 100).toFixed(1)} cm` : `${m.toFixed(3)} m`; }
-function updateLine(a, b) {
-  if (line) scene.remove(line);
-  line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), lineMat);
-  scene.add(line);
-  distEl.textContent = fmt(a.distanceTo(b));
+function marker(p, color) { const m = new THREE.Mesh(markerGeo, mat(color)); m.position.copy(p); return m; }
+
+// Un cilindro fino entre dos puntos (las líneas de WebGL siempre miden 1px, por eso usamos cilindros)
+const UP = new THREE.Vector3(0, 1, 0);
+function segment(a, b, color) {
+  const m = new THREE.Mesh(segGeo, mat(color));
+  const dir = b.clone().sub(a); const len = dir.length();
+  m.position.copy(a).addScaledVector(dir, 0.5);
+  m.scale.set(1, len, 1);
+  m.quaternion.setFromUnitVectors(UP, dir.normalize());
+  return m;
 }
 
-// 3. Sesión AR
-let session = null, hitTestSource = null, refSpace = null;
+// Etiqueta de texto flotante (una imagen pintada en un canvas, pegada a un sprite)
+function label(text, p, color = '#ffb545') {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.roundRect(0, 0, 512, 128, 40); ctx.fill();
+  ctx.fillStyle = color; ctx.font = 'bold 72px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, 256, 64);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+  s.scale.set(0.16, 0.04, 1); s.position.copy(p); s.renderOrder = 10;
+  return s;
+}
+
+// Relleno translúcido de un polígono (abanico de triángulos desde el primer vértice)
+function fill(pts, color) {
+  const v = [];
+  for (let i = 1; i < pts.length - 1; i++) v.push(...pts[0].toArray(), ...pts[i].toArray(), ...pts[i + 1].toArray());
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  return new THREE.Mesh(g, mat(color, { transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false }));
+}
+
+// ---------- 3. Geometría de las medidas ----------
+const fmtLen = m => m < 1 ? `${(m * 100).toFixed(1)} cm` : `${m.toFixed(3)} m`;
+const fmtArea = a => a < 1 ? `${(a * 1e4).toFixed(0)} cm²` : `${a.toFixed(2)} m²`;
+const centroid = pts => pts.reduce((s, p) => s.add(p), new THREE.Vector3()).divideScalar(pts.length);
+function perimeter(pts) { let s = 0; for (let i = 0; i < pts.length; i++) s += pts[i].distanceTo(pts[(i + 1) % pts.length]); return s; }
+// Área de un polígono plano en 3D: la mitad del módulo de la suma de productos vectoriales
+function area(pts) {
+  const acc = new THREE.Vector3();
+  for (let i = 0; i < pts.length; i++) acc.add(pts[i].clone().cross(pts[(i + 1) % pts.length]));
+  return acc.length() / 2;
+}
+
+// ---------- 4. Estado ----------
+const state = { mode: 'dist', cur: [], curObjs: [], items: [] };
+// items: { type:'line', pts, len, objs } | { type:'poly', pts, area, perim, objs }
+
+function setMode(m) {
+  state.mode = m; discardCurrent();
+  $('modeDist').classList.toggle('active', m === 'dist');
+  $('modeArea').classList.toggle('active', m === 'area');
+  $('close').hidden = m !== 'area';
+  reticle.material = mat(COLOR[m]);
+  hintEl.textContent = m === 'dist' ? 'Toca el primer punto' : 'Toca las esquinas y pulsa Cerrar';
+  refreshHud();
+}
+function discardCurrent() { state.curObjs.forEach(o => world.remove(o)); state.cur = []; state.curObjs = []; }
+function refreshHud() {
+  const nl = state.items.filter(i => i.type === 'line').length, na = state.items.length - nl;
+  countEl.textContent = `${nl} línea${nl === 1 ? '' : 's'} · ${na} área${na === 1 ? '' : 's'}`;
+  const last = state.items.at(-1);
+  if (!state.cur.length) valueEl.textContent = last ? (last.type === 'line' ? fmtLen(last.len) : fmtArea(last.area)) : '—';
+}
+
+function addPoint(p) {
+  const color = COLOR[state.mode];
+  state.cur.push(p);
+  const m = marker(p, color); world.add(m); state.curObjs.push(m);
+  if (state.mode === 'dist') {
+    if (state.cur.length === 2) finishLine();
+    else hintEl.textContent = 'Ahora toca el segundo punto';
+  } else {
+    if (state.cur.length >= 2) { const s = segment(state.cur.at(-2), p, color); world.add(s); state.curObjs.push(s); }
+    hintEl.textContent = state.cur.length < 3 ? 'Sigue marcando esquinas' : 'Pulsa Cerrar cuando termines';
+  }
+}
+function finishLine() {
+  const [a, b] = state.cur, len = a.distanceTo(b), color = COLOR.dist;
+  const objs = [...state.curObjs, segment(a, b, color), label(fmtLen(len), centroid([a, b]))];
+  objs.forEach(o => world.add(o));
+  state.items.push({ type: 'line', pts: [a, b], len, objs });
+  state.cur = []; state.curObjs = [];
+  hintEl.textContent = 'Toca para empezar otra línea'; refreshHud();
+}
+function finishPoly() {
+  if (state.cur.length < 3) { hintEl.textContent = 'Necesitas al menos 3 esquinas'; return; }
+  const pts = state.cur.slice(), A = area(pts), P = perimeter(pts), color = COLOR.area;
+  const objs = [...state.curObjs, segment(pts.at(-1), pts[0], color), fill(pts, color),
+    label(fmtArea(A), centroid(pts), '#5ac8fa')];
+  objs.forEach(o => world.add(o));
+  state.items.push({ type: 'poly', pts, area: A, perim: P, objs });
+  state.cur = []; state.curObjs = [];
+  hintEl.textContent = 'Toca para empezar otra área'; refreshHud();
+}
+function undo() {
+  if (state.cur.length) {
+    state.cur.pop();
+    // cada punto añade un marcador (y en área, también un tramo a partir del segundo)
+    const n = state.mode === 'area' && state.cur.length >= 1 ? 2 : 1;
+    state.curObjs.splice(-n).forEach(o => world.remove(o));
+  } else if (state.items.length) {
+    state.items.pop().objs.forEach(o => world.remove(o));
+  }
+  refreshHud();
+}
+function resetAll() { discardCurrent(); state.items.forEach(i => i.objs.forEach(o => world.remove(o))); state.items = []; refreshHud(); }
+
+// Previsualización: lo que pasaría si tocaras ahora donde está el anillo
+function drawLive(p) {
+  live.clear();
+  if (!state.cur.length) return;
+  const color = COLOR[state.mode];
+  if (state.mode === 'dist') {
+    const len = state.cur[0].distanceTo(p);
+    live.add(segment(state.cur[0], p, color)); valueEl.textContent = fmtLen(len);
+  } else {
+    live.add(segment(state.cur.at(-1), p, color));
+    if (state.cur.length >= 2) {
+      const pts = [...state.cur, p];
+      live.add(segment(p, pts[0], color), fill(pts, color));
+      valueEl.textContent = fmtArea(area(pts));
+    } else valueEl.textContent = fmtLen(state.cur[0].distanceTo(p));
+  }
+}
+
+// ---------- 5. Sesión AR ----------
+let session = null, hitTestSource = null, refSpace = null, hasCamera = false, captureNext = false;
 
 startBtn.onclick = async () => {
-  const attempts = [
-    ['hit-test + overlay', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay'], domOverlay: { root: overlay } }],
-    ['hit-test',           { requiredFeatures: ['hit-test'] }],
-    ['sin funciones',      {}],
-  ];
-  const log = [];
-  for (const [name, init] of attempts) {
-    try {
-      session = await navigator.xr.requestSession('immersive-ar', init);
-      log.push(`✔ ${name}`); break;
-    } catch (e) { log.push(`✘ ${name}: ${e.name} · ${e.message}`); }
-  }
-  status.innerHTML = log.join('<br>');
-  if (!session) return;
-  if (!session.enabledFeatures?.includes('hit-test')) {
-    status.innerHTML += '<br>La sesión abre pero SIN hit-test: no se puede medir.';
-    session.end(); return;
-  }
+  try {
+    session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['dom-overlay', 'camera-access'],
+      domOverlay: { root: overlay }
+    });
+  } catch (e) { status.textContent = `No se pudo iniciar AR: ${e.name} · ${e.message}`; return; }
 
-  overlay.classList.add('on'); clearAll(); hintEl.textContent = 'Busca una superficie';
+  hasCamera = session.enabledFeatures?.includes('camera-access') ?? false;
+  overlay.classList.add('on'); resetAll(); setMode('dist'); hintEl.textContent = 'Busca una superficie';
   renderer.xr.setReferenceSpaceType('local');
   await renderer.xr.setSession(session);
   refSpace = await session.requestReferenceSpace('local');
@@ -142,14 +285,8 @@ startBtn.onclick = async () => {
   hitTestSource = await session.requestHitTestSource({ space: viewer });
 
   session.addEventListener('select', () => {
-    if (!reticle.visible) return;
-    const p = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
-    if (points.length === 2) clearAll();
-    points.push(p);
-    const m = new THREE.Mesh(markerGeo, markerMat); m.position.copy(p);
-    scene.add(m); markers.push(m);
-    if (points.length === 1) hintEl.textContent = 'Ahora toca el segundo punto';
-    else { updateLine(points[0], points[1]); hintEl.textContent = 'Toca de nuevo para empezar otra medida'; }
+    if (!reticle.visible || $('export').classList.contains('on')) return;
+    addPoint(new THREE.Vector3().setFromMatrixPosition(reticle.matrix));
   });
   session.addEventListener('end', () => {
     overlay.classList.remove('on'); hitTestSource = null; session = null;
@@ -160,18 +297,123 @@ startBtn.onclick = async () => {
     if (!frame || !hitTestSource) return;
     const hits = frame.getHitTestResults(hitTestSource);
     if (hits.length) {
-      const pose = hits[0].getPose(refSpace);
-      reticle.visible = true; reticle.matrix.fromArray(pose.transform.matrix);
-      if (points.length === 1) { // distancia en vivo desde el primer punto
-        updateLine(points[0], new THREE.Vector3().setFromMatrixPosition(reticle.matrix));
-      }
-    } else reticle.visible = false;
+      reticle.visible = true; reticle.matrix.fromArray(hits[0].getPose(refSpace).transform.matrix);
+      drawLive(new THREE.Vector3().setFromMatrixPosition(reticle.matrix));
+    } else { reticle.visible = false; live.clear(); }
     renderer.render(scene, camera);
+    if (captureNext) { captureNext = false; capture(frame); }
   });
 };
 
-$('reset').onclick = clearAll;
+$('modeDist').onclick = () => setMode('dist');
+$('modeArea').onclick = () => setMode('area');
+$('close').onclick = finishPoly;
+$('undo').onclick = undo;
+$('reset').onclick = resetAll;
 $('exit').onclick = () => session && session.end();
+$('export').onclick = () => { if (state.items.length) captureNext = true; else hintEl.textContent = 'No hay medidas que exportar'; };
+$('expClose').onclick = () => $('export').classList.remove('on');
+
+// ---------- 6. Exportación ----------
+function capture(frame) {
+  const view = frame.getViewerPose(refSpace)?.views[0];
+  let canvas = null;
+  if (hasCamera && view?.camera) canvas = photoWithDims(view);
+  if (!canvas) canvas = planWithDims();
+  showExport(canvas);
+}
+
+// Foto de la cámara + cotas proyectadas con la misma perspectiva que ves en pantalla
+function photoWithDims(view) {
+  try {
+    const gl = renderer.getContext();
+    const binding = new XRWebGLBinding(session, gl);
+    const tex = binding.getCameraImage(view.camera);
+    const w = view.camera.width, h = view.camera.height;
+    const fb = gl.createFramebuffer(), prev = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    const px = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, prev); gl.deleteFramebuffer(fb);
+
+    const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
+    tmp.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.buffer), w, h), 0, 0);
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.save(); ctx.scale(1, -1); ctx.drawImage(tmp, 0, -h); ctx.restore(); // WebGL guarda la imagen boca abajo
+
+    // Proyección 3D → píxel con las matrices de la vista actual
+    const P = new THREE.Matrix4().fromArray(view.projectionMatrix);
+    const V = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
+    const PV = P.multiply(V);
+    const proj = p => { const v = new THREE.Vector4(p.x, p.y, p.z, 1).applyMatrix4(PV);
+      return v.w > 0 ? [(v.x / v.w + 1) / 2 * w, (1 - v.y / v.w) / 2 * h] : null; };
+    drawDims(ctx, proj, Math.max(w, h) / 40);
+    return c;
+  } catch (e) { console.warn('Sin foto de cámara:', e); return null; }
+}
+
+// Plano en planta (vista desde arriba, a escala) cuando no hay foto
+function planWithDims() {
+  const all = state.items.flatMap(i => i.pts);
+  const xs = all.map(p => p.x), zs = all.map(p => p.z);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
+  const W = 1200, H = 1200, pad = 120, span = Math.max(maxX - minX, maxZ - minZ, 0.2);
+  const k = (W - 2 * pad) / span;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#0e1116'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#9aa3ad'; ctx.font = '28px sans-serif'; ctx.fillText('Plano en planta · escala 1 m = ' + k.toFixed(0) + ' px', pad, 60);
+  const proj = p => [pad + (p.x - minX) * k, pad + (p.z - minZ) * k];
+  drawDims(ctx, proj, 28);
+  return c;
+}
+
+// Dibuja líneas, polígonos y cotas sobre cualquier canvas dado un proyector 3D→2D
+function drawDims(ctx, proj, fontPx) {
+  ctx.lineWidth = fontPx / 6; ctx.font = `bold ${fontPx}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const text = (t, [x, y], color) => {
+    const wt = ctx.measureText(t).width + fontPx;
+    ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.beginPath(); ctx.roundRect(x - wt / 2, y - fontPx * .7, wt, fontPx * 1.4, fontPx / 3); ctx.fill();
+    ctx.fillStyle = color; ctx.fillText(t, x, y);
+  };
+  for (const it of state.items) {
+    const pts = it.pts.map(proj); if (pts.some(p => !p)) continue;
+    const color = it.type === 'line' ? '#ffb545' : '#5ac8fa';
+    ctx.strokeStyle = color; ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(...p) : ctx.moveTo(...p));
+    if (it.type === 'poly') { ctx.closePath(); ctx.fillStyle = color + '40'; ctx.fill(); }
+    ctx.stroke();
+    ctx.fillStyle = color; pts.forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, fontPx / 4, 0, 7); ctx.fill(); });
+    const mid = pts.reduce(([sx, sy], [x, y]) => [sx + x / pts.length, sy + y / pts.length], [0, 0]);
+    text(it.type === 'line' ? fmtLen(it.len) : `${fmtArea(it.area)} · per. ${fmtLen(it.perim)}`, mid, color);
+  }
+}
+
+function toCsv() {
+  const f = n => n.toFixed(4);
+  const rows = ['tipo;n;valor;unidad;perimetro_m;puntos_xyz_m'];
+  let nl = 0, na = 0;
+  for (const it of state.items) {
+    const pts = it.pts.map(p => `${f(p.x)} ${f(p.y)} ${f(p.z)}`).join(' | ');
+    rows.push(it.type === 'line' ? `linea;${++nl};${f(it.len)};m;;${pts}` : `area;${++na};${f(it.area)};m2;${f(it.perim)};${pts}`);
+  }
+  return rows.join('\n');
+}
+
+let expFiles = null;
+async function showExport(canvas) {
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+  const csv = toCsv();
+  expFiles = [new File([blob], 'medidas.png', { type: 'image/png' }), new File([csv], 'medidas.csv', { type: 'text/csv' })];
+  $('expImg').src = URL.createObjectURL(blob);
+  $('dlImg').href = $('expImg').src;
+  $('dlCsv').href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  $('expTxt').textContent = (hasCamera ? 'Foto con cotas.' : 'Sin acceso a la imagen de cámara en AR: se exporta el plano en planta.') + '\n\n' + csv;
+  $('share').hidden = !(navigator.canShare && navigator.canShare({ files: expFiles }));
+  $('export').classList.add('on');
+}
+$('share').onclick = () => navigator.share({ files: expFiles, title: 'Medidas AR' }).catch(() => {});
 </script>
 </body>
 </html>
