@@ -116,16 +116,16 @@ let session = null, hitTestSource = null, refSpace = null;
 startBtn.onclick = async () => {
   try {
     session = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['hit-test', 'local-floor'],
+      requiredFeatures: ['hit-test'],
       optionalFeatures: ['dom-overlay'],
       domOverlay: { root: overlay }
     });
   } catch (e) { status.textContent = 'No se pudo iniciar AR: ' + e.message; return; }
 
   overlay.classList.add('on'); clearAll(); hintEl.textContent = 'Busca una superficie';
-  renderer.xr.setReferenceSpaceType('local-floor');
+  renderer.xr.setReferenceSpaceType('local');
   await renderer.xr.setSession(session);
-  refSpace = await session.requestReferenceSpace('local-floor');
+  refSpace = await session.requestReferenceSpace('local');
   const viewer = await session.requestReferenceSpace('viewer');
   hitTestSource = await session.requestHitTestSource({ space: viewer });
 
