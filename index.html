@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Medir AR</title>
+<style>
+  :root { --bg:#0e1116; --fg:#f2f4f7; --muted:#9aa3ad; --accent:#ffb545; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font:16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #intro { min-height:100%; display:flex; flex-direction:column; justify-content:center;
+    gap:16px; padding:24px 20px; box-sizing:border-box; max-width:36rem; margin:0 auto; }
+  h1 { margin:0; font-size:1.8rem; }
+  p { margin:0; color:var(--muted); }
+  ol { margin:0; padding-left:1.2rem; color:var(--muted); }
+  button { font:inherit; font-weight:600; padding:14px 20px; border:0; border-radius:12px;
+    background:var(--accent); color:#1a1200; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  #status { font-size:.9rem; color:var(--muted); min-height:1.4em; }
+  #overlay { position:fixed; inset:0; display:none; pointer-events:none; }
+  #overlay.on { display:block; }
+  #hud { position:absolute; top:calc(12px + env(safe-area-inset-top,0px)); left:12px; right:12px;
+    display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+  #dist { font-size:2.4rem; font-weight:700; font-variant-numeric:tabular-nums;
+    text-shadow:0 1px 6px rgba(0,0,0,.6); }
+  #hint { font-size:.95rem; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.7); }
+  #ctrl { position:absolute; bottom:calc(20px + env(safe-area-inset-bottom,0px)); left:0; right:0;
+    display:flex; justify-content:center; gap:12px; pointer-events:auto; }
+  #ctrl button { background:rgba(20,22,28,.75); color:#fff; backdrop-filter:blur(6px); }
+</style>
+</head>
+<body>
+
+<section id="intro">
+  <h1>Medir AR</h1>
+  <p>Prueba de medición con la cámara usando WebXR. Funciona en Android con Chrome en móviles compatibles con ARCore.</p>
+  <ol>
+    <li>Pulsa <b>Iniciar</b> y acepta el permiso de cámara.</li>
+    <li>Mueve el móvil despacio sobre una superficie (suelo, mesa) hasta que aparezca el anillo.</li>
+    <li>Toca la pantalla en el primer punto, y luego en el segundo.</li>
+  </ol>
+  <button id="start" disabled>Comprobando compatibilidad…</button>
+  <div id="status"></div>
+</section>
+
+<div id="overlay">
+  <div id="hud">
+    <div id="dist">—</div>
+    <div id="hint">Busca una superficie</div>
+  </div>
+  <div id="ctrl">
+    <button id="reset">Borrar</button>
+    <button id="exit">Salir</button>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const $ = id => document.getElementById(id);
+const startBtn = $('start'), status = $('status'), overlay = $('overlay');
+const distEl = $('dist'), hintEl = $('hint');
+
+// 1. ¿Soporta este navegador AR?
+async function checkSupport() {
+  if (!navigator.xr) return fail('Este navegador no tiene WebXR. Usa Chrome en Android.');
+  const ok = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
+  if (!ok) return fail('El dispositivo no soporta AR (necesita ARCore instalado).');
+  startBtn.disabled = false; startBtn.textContent = 'Iniciar';
+}
+function fail(msg) { startBtn.textContent = 'No disponible'; status.textContent = msg; }
+checkSupport();
+
+// 2. Escena three.js mínima
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+
+// Anillo que marca dónde "toca" la superficie
+const reticle = new THREE.Mesh(
+  new THREE.RingGeometry(0.03, 0.04, 32).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({ color: 0xffb545 })
+);
+reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
+
+const markerGeo = new THREE.SphereGeometry(0.008, 16, 16);
+const markerMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const lineMat = new THREE.LineBasicMaterial({ color: 0xffb545, linewidth: 2 });
+let points = [], markers = [], line = null;
+
+function clearAll() {
+  markers.forEach(m => scene.remove(m)); markers = []; points = [];
+  if (line) { scene.remove(line); line = null; }
+  distEl.textContent = '—'; hintEl.textContent = 'Toca el primer punto';
+}
+function fmt(m) { return m < 1 ? `${(m * 100).toFixed(1)} cm` : `${m.toFixed(3)} m`; }
+function updateLine(a, b) {
+  if (line) scene.remove(line);
+  line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), lineMat);
+  scene.add(line);
+  distEl.textContent = fmt(a.distanceTo(b));
+}
+
+// 3. Sesión AR
+let session = null, hitTestSource = null, refSpace = null;
+
+startBtn.onclick = async () => {
+  try {
+    session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test', 'local-floor'],
+      optionalFeatures: ['dom-overlay'],
+      domOverlay: { root: overlay }
+    });
+  } catch (e) { status.textContent = 'No se pudo iniciar AR: ' + e.message; return; }
+
+  overlay.classList.add('on'); clearAll(); hintEl.textContent = 'Busca una superficie';
+  renderer.xr.setReferenceSpaceType('local-floor');
+  await renderer.xr.setSession(session);
+  refSpace = await session.requestReferenceSpace('local-floor');
+  const viewer = await session.requestReferenceSpace('viewer');
+  hitTestSource = await session.requestHitTestSource({ space: viewer });
+
+  session.addEventListener('select', () => {
+    if (!reticle.visible) return;
+    const p = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+    if (points.length === 2) clearAll();
+    points.push(p);
+    const m = new THREE.Mesh(markerGeo, markerMat); m.position.copy(p);
+    scene.add(m); markers.push(m);
+    if (points.length === 1) hintEl.textContent = 'Ahora toca el segundo punto';
+    else { updateLine(points[0], points[1]); hintEl.textContent = 'Toca de nuevo para empezar otra medida'; }
+  });
+  session.addEventListener('end', () => {
+    overlay.classList.remove('on'); hitTestSource = null; session = null;
+    renderer.setAnimationLoop(null);
+  });
+
+  renderer.setAnimationLoop((t, frame) => {
+    if (!frame || !hitTestSource) return;
+    const hits = frame.getHitTestResults(hitTestSource);
+    if (hits.length) {
+      const pose = hits[0].getPose(refSpace);
+      reticle.visible = true; reticle.matrix.fromArray(pose.transform.matrix);
+      if (points.length === 1) { // distancia en vivo desde el primer punto
+        updateLine(points[0], new THREE.Vector3().setFromMatrixPosition(reticle.matrix));
+      }
+    } else reticle.visible = false;
+    renderer.render(scene, camera);
+  });
+};
+
+$('reset').onclick = clearAll;
+$('exit').onclick = () => session && session.end();
+</script>
+</body>
+</html>
